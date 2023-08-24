@@ -9,6 +9,7 @@ import os
 import io
 import numpy as np
 import easyocr
+import tkinter
 
 class OcrService:
 
