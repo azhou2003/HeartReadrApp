@@ -1,15 +1,15 @@
 import cv2
-from PIL import Image
+import tkinter as tk
+from tkinter import filedialog
+from PIL import Image, ImageTk
 import re
 import csv
-import matplotlib
-matplotlib.use('agg')
 import matplotlib.pyplot as plt
 import os
 import io
 import numpy as np
 import easyocr
-import tkinter
+import sys
 
 class OcrService:
 
@@ -63,7 +63,7 @@ class OcrService:
     def process_video(self):
 
         #Open the video file
-        video_cap = cv2.VideoCapture(self.fs.path(self.file_name))
+        video_cap = cv2.VideoCapture(self.file_name)
 
         if not video_cap.isOpened():
             raise ValueError(f"Unable to open {self.file_name}")
@@ -131,10 +131,10 @@ class OcrService:
         Creates and saves plot to Django Media Folder
         :return: the file path from the media folder in string form
         '''
+        base_name = os.path.splitext(self.video_name)[0]  # Get the base name without extension
+        plot_file_name = f'plots/{base_name}_plot.png'
 
         num_frames = [i for i in range(1, len(self.value_per_frame) + 1)]
-
-        plot_file_name = f'plots/{self.video_name}_plot.png'
 
         plt.plot(num_frames, self.value_per_frame)
         plt.title('Values per Frame')
@@ -142,7 +142,7 @@ class OcrService:
         plt.ylabel('Value')
         plt.grid()
 
-        plt.savefig(self.fs.path(plot_file_name))
+        plt.savefig(plot_file_name)
 
         plt.clf()
 
@@ -153,7 +153,8 @@ class OcrService:
         Save a CSV file to the media folder with two columns: time_stamps, value_per_frame.
         :returns: file path from Django media folder to the csv file
         """
-        file_name = f'csvs/{self.video_name}_data.csv'
+        base_name = os.path.splitext(self.video_name)[0]  # Get the base name without extension
+        file_name = f'csvs/{base_name}_data.csv'
 
         # Create a CSV file in memory
         csv_file = io.StringIO()
@@ -165,8 +166,124 @@ class OcrService:
         # Write the data
         csv_writer.writerows(zip(self.time_stamps, self.value_per_frame))
 
-        abs_path = self.fs.path(file_name)
-        with open(abs_path, 'w') as file:
+        with open(file_name, 'w') as file:
             file.write(csv_file.getvalue())
 
         return file_name
+    
+class OcrGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("HeartReadr OCR GUI")
+
+        # Create a frame for the banner
+        self.banner_frame = tk.Frame(root, bg="magenta")
+        self.banner_frame.grid(row=0, column=0, columnspan=2, sticky="ew")
+
+        # Add the "HeartReadr" label to the banner
+        heartreadr_label = tk.Label(self.banner_frame, text="HeartReadr", fg="white", bg="magenta")
+        heartreadr_label.pack(side="left", padx=10, pady=5)
+
+        # Create a space for an icon on the far right
+        icon_label = tk.Label(self.banner_frame, text="", bg="magenta")
+        icon_label.pack(side="right", padx=10, pady=5)
+
+        self.file_button = tk.Button(root, text="Browse MP4 File", command=self.open_file)
+        self.file_button.grid(row=1, column=0, pady=10, padx=10)
+
+        self.load_button = tk.Button(root, text="Load Video", command=self.load_video, state=tk.DISABLED)
+        self.load_button.grid(row=1, column=1, pady=10, padx=10)
+
+        self.canvas = tk.Canvas(root)
+        self.canvas.grid(row=2, column=0, columnspan=2)
+
+        self.reminder_label = tk.Label(root, text="Draw ROI from top left to bottom right", fg="blue")
+        self.reminder_label.grid(row=3, column=0, columnspan=2, pady=5)
+
+        self.submit_button = tk.Button(root, text="Submit OCR Region", command=self.submit_roi, state=tk.DISABLED)
+        self.submit_button.grid(row=4, column=0, columnspan=2, pady=10)
+
+    def open_file(self):
+        self.file_path = filedialog.askopenfilename(filetypes=[("MP4 Files", "*.mp4")])
+        if self.file_path:
+            self.load_button.config(state=tk.NORMAL)
+
+    def load_video(self):
+        self.video_cap = cv2.VideoCapture(self.file_path)
+        ret, frame = self.video_cap.read()
+        if ret:
+            self.current_frame = frame
+            self.display_frame()
+            self.canvas.bind("<ButtonPress-1>", self.start_roi)
+            self.canvas.bind("<B1-Motion>", self.draw_roi)
+            self.canvas.bind("<ButtonRelease-1>", self.end_roi)
+            self.submit_button.config(state=tk.NORMAL)
+
+    def display_frame(self):
+        frame_rgb = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(frame_rgb)
+        self.img_tk = ImageTk.PhotoImage(image=img)  # Store the PhotoImage in an instance variable
+        self.canvas.config(width=img.width, height=img.height)
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.img_tk)  # Use self.img_tk here
+
+    def start_roi(self, event):
+        self.x_begin, self.y_begin = event.x, event.y
+
+    def draw_roi(self, event):
+        self.canvas.delete("roi_rect")
+
+        x_end, y_end = event.x, event.y
+
+        if x_end > self.x_begin and y_end > self.y_begin:
+            # Calculate the new x_begin, y_begin, width, and height values
+            self.width = x_end - self.x_begin
+            self.height = y_end - self.y_begin
+
+            # Ensure the ROI box is displayed correctly
+            self.canvas.create_rectangle(
+                self.x_begin,
+                self.y_begin,
+                self.x_begin + self.width,
+                self.y_begin + self.height,
+                outline="red",
+                tags="roi_rect",
+            )
+        else:
+            # Reset the ROI drawing if not starting from top left
+            self.width = 0
+            self.height = 0
+
+            # Update x_begin and y_begin to the current mouse position
+            self.x_begin = x_end
+            self.y_begin = y_end
+
+    def end_roi(self, event):
+        self.width = event.x - self.x_begin
+        self.height = event.y - self.y_begin
+        self.roi_selected = True
+
+    def submit_roi(self):
+        if self.roi_selected:
+            self.video_cap.release()
+            ocr_service = OcrService(self.file_path, self.x_begin, self.width, self.y_begin, self.height)
+            self.process_video_and_finalize(ocr_service)
+            
+    def process_video_and_finalize(self, ocr_service):
+        ocr_service.process_video()
+        ocr_service.create_csv()
+        ocr_service.plot_values()
+        self.root.destroy()
+        sys.exit()
+
+
+def create_directories_if_not_exist():
+    directories = ['csvs', 'plots']
+    for directory in directories:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+if __name__ == "__main__":
+    create_directories_if_not_exist()
+    root = tk.Tk()
+    app = OcrGUI(root)
+    root.mainloop()
