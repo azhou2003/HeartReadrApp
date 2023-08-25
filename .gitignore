@@ -2,3 +2,5 @@ csvs/
 plots/
 input_video/
 envHeart/
+build/
+dist/

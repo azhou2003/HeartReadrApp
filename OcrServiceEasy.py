@@ -96,9 +96,12 @@ class OcrService:
 
                     result = reader.readtext(cropped_image)
 
-                    value = result[0][1] #extracts the detected value
+                    if not result:
+                        value = np.nan
+                    else:
+                        value = result[0][1] #extracts the detected value
 
-                    value = value if value.isdigit() else np.nan
+                        value = value if value.isdigit() else np.nan
 
                     self.value_per_frame.append(value)
 
