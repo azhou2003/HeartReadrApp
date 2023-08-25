@@ -10,6 +10,7 @@ import io
 import numpy as np
 import easyocr
 import sys
+import tkinter.messagebox
 
 class OcrService:
 
@@ -86,6 +87,7 @@ class OcrService:
 
                 #Preprocesses frame and adds name to list
                 if frame_count == 5:
+
                     cropped_image = self.preprocess_frame(frame, self.x_begin, self.width, self.y_begin, self.height)
                     
                     frame_num += 1
@@ -181,12 +183,19 @@ class OcrGUI:
         self.banner_frame.grid(row=0, column=0, columnspan=2, sticky="ew")
 
         # Add the "HeartReadr" label to the banner
-        heartreadr_label = tk.Label(self.banner_frame, text="HeartReadr", fg="white", bg="magenta")
+        heartreadr_label = tk.Label(self.banner_frame, text="HeartReadr", fg="white", bg="magenta", font=("Helvetica", 24, "bold"))
         heartreadr_label.pack(side="left", padx=10, pady=5)
 
+        icon_image = Image.open("icon/heartreader-icon.png")
+        icon_photo = ImageTk.PhotoImage(icon_image)
+        text_label_height = heartreadr_label.winfo_reqheight()  # Get the height of the text label
+        icon_image = icon_image.resize((text_label_height, text_label_height), Image.ANTIALIAS)  # Resize the icon image
+        self.icon_photo = ImageTk.PhotoImage(icon_image)
+
         # Create a space for an icon on the far right
-        icon_label = tk.Label(self.banner_frame, text="", bg="magenta")
-        icon_label.pack(side="right", padx=10, pady=5)
+        self.icon_label = tk.Label(self.banner_frame, image=self.icon_photo, bg="magenta")
+        self.icon_label.image = self.icon_photo  # Keep a reference
+        self.icon_label.pack(side="right", padx=10, pady=5)
 
         self.file_button = tk.Button(root, text="Browse MP4 File", command=self.open_file)
         self.file_button.grid(row=1, column=0, pady=10, padx=10)
@@ -197,8 +206,16 @@ class OcrGUI:
         self.canvas = tk.Canvas(root)
         self.canvas.grid(row=2, column=0, columnspan=2)
 
-        self.reminder_label = tk.Label(root, text="Draw ROI from top left to bottom right", fg="blue")
-        self.reminder_label.grid(row=3, column=0, columnspan=2, pady=5)
+        # Create a label to display the instructions
+        instructions = (
+            "Instructions:\n"
+            "1. Press 'Browse MP4 File' and select a file.\n"
+            "2. Press 'Load Video' after selecting the file.\n"
+            "3. Draw a region from top left to bottom right.\n"
+            "4. Press 'Submit OCR Region' and wait for video processing."
+        )
+        self.instructions_label = tk.Label(root, text=instructions, fg="blue", font=("Helvetica", 12), relief=tk.RAISED, borderwidth=2)
+        self.instructions_label.grid(row=3, column=0, columnspan=2, pady=10, padx=10)
 
         self.submit_button = tk.Button(root, text="Submit OCR Region", command=self.submit_roi, state=tk.DISABLED)
         self.submit_button.grid(row=4, column=0, columnspan=2, pady=10)
@@ -219,7 +236,7 @@ class OcrGUI:
             self.canvas.bind("<ButtonRelease-1>", self.end_roi)
             self.submit_button.config(state=tk.NORMAL)
 
-    def display_frame(self):
+    def display_frame(self, show_loading = False):
         frame_rgb = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(frame_rgb)
         self.img_tk = ImageTk.PhotoImage(image=img)  # Store the PhotoImage in an instance variable
@@ -272,6 +289,7 @@ class OcrGUI:
         ocr_service.process_video()
         ocr_service.create_csv()
         ocr_service.plot_values()
+        tkinter.messagebox.showinfo("Processing Finished", "Video processing is complete!")
         self.root.destroy()
         sys.exit()
 
