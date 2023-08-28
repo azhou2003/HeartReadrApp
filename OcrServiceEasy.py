@@ -11,6 +11,7 @@ import numpy as np
 import easyocr
 import sys
 import tkinter.messagebox
+import time
 
 class OcrService:
 
@@ -58,8 +59,9 @@ class OcrService:
 
         #Crops the iamge
         cropped_image = frame[y:(y + height), x:(x + width)]
+        gray_image = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
 
-        return cropped_image
+        return gray_image
     
     @staticmethod
     def validate_string(input_string):
@@ -93,13 +95,13 @@ class OcrService:
                 #Preprocesses frame and adds name to list
                 if frame_count == 5:
 
-                    cropped_image = self.preprocess_frame(frame, self.x_begin, self.width, self.y_begin, self.height)
+                    processed_image = self.preprocess_frame(frame, self.x_begin, self.width, self.y_begin, self.height)
                     
                     frame_num += 1
                     print(f'Reading frame: {frame_num}')
                     
 
-                    result = reader.readtext(cropped_image)
+                    result = reader.readtext(processed_image)
 
                     if not result:
                         value = np.nan
@@ -107,6 +109,9 @@ class OcrService:
                         value = result[0][1] #extracts the detected value
 
                         value = value if self.validate_string(value) else np.nan
+                    
+                    if value == np.nan:
+                        self.skipped_frames += 1
 
                     self.value_per_frame.append(value)
 
@@ -117,6 +122,8 @@ class OcrService:
 
             else:
                 break
+
+        print(f"Skipped Frames: {self.skipped_frames} (No detections or illegal detections)")
 
         self.fps = video_cap.get(cv2.CAP_PROP_FPS)
 
@@ -344,7 +351,11 @@ class OcrGUI:
             self.process_video_and_finalize(ocr_service)
             
     def process_video_and_finalize(self, ocr_service):
+        start_time = time.time()
         ocr_service.process_video()
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print(f"Execution time: {execution_time:.4f} seconds")
         ocr_service.create_csv()
         ocr_service.plot_values()
         tkinter.messagebox.showinfo("Processing Finished", "Video processing is complete!")
