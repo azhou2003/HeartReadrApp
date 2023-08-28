@@ -60,6 +60,11 @@ class OcrService:
         cropped_image = frame[y:(y + height), x:(x + width)]
 
         return cropped_image
+    
+    @staticmethod
+    def validate_string(input_string):
+        allowed_characters = "0123456789.,"
+        return all(char in allowed_characters for char in input_string)
 
     def process_video(self):
 
@@ -101,7 +106,7 @@ class OcrService:
                     else:
                         value = result[0][1] #extracts the detected value
 
-                        value = value if value.isdigit() else np.nan
+                        value = value if self.validate_string(value) else np.nan
 
                     self.value_per_frame.append(value)
 
@@ -181,6 +186,8 @@ class OcrGUI:
         self.root = root
         self.root.title("HeartReadr OCR GUI")
 
+        self.root.geometry("1280x1000") 
+
         # Create a frame for the banner
         self.banner_frame = tk.Frame(root, bg="magenta")
         self.banner_frame.grid(row=0, column=0, columnspan=2, sticky="ew")
@@ -206,7 +213,7 @@ class OcrGUI:
         self.load_button = tk.Button(root, text="Load Video", command=self.load_video, state=tk.DISABLED)
         self.load_button.grid(row=1, column=1, pady=10, padx=10)
 
-        self.canvas = tk.Canvas(root)
+        self.canvas = tk.Canvas(root, width=1280, height=720)
         self.canvas.grid(row=2, column=0, columnspan=2)
 
         # Create a label to display the instructions
@@ -239,12 +246,32 @@ class OcrGUI:
             self.canvas.bind("<ButtonRelease-1>", self.end_roi)
             self.submit_button.config(state=tk.NORMAL)
 
-    def display_frame(self, show_loading = False):
+    def display_frame(self, show_loading=False):
         frame_rgb = cv2.cvtColor(self.current_frame, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(frame_rgb)
-        self.img_tk = ImageTk.PhotoImage(image=img)  # Store the PhotoImage in an instance variable
-        self.canvas.config(width=img.width, height=img.height)
-        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.img_tk)  # Use self.img_tk here
+
+        # Calculate the desired width and height for the resized image
+        canvas_width = 1280
+        canvas_height = 720
+
+        # Calculate the aspect ratio of the original image
+        original_aspect_ratio = img.width / img.height
+
+        # Calculate the maximum width and height that fit within the canvas
+        max_width = min(img.width, canvas_width)
+        max_height = min(img.height, canvas_height)
+
+        # Resize the image while maintaining the aspect ratio
+        if original_aspect_ratio > canvas_width / canvas_height:
+            resized_img = img.resize((max_width, int(max_width / original_aspect_ratio)), Image.ANTIALIAS)
+        else:
+            resized_img = img.resize((int(max_height * original_aspect_ratio), max_height), Image.ANTIALIAS)
+
+        self.img_tk = ImageTk.PhotoImage(image=resized_img)
+
+        # Update the canvas size and display the resized image
+        self.canvas.config(width=canvas_width, height=canvas_height)
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.img_tk)
 
     def start_roi(self, event):
         self.x_begin, self.y_begin = event.x, event.y
@@ -253,6 +280,10 @@ class OcrGUI:
         self.canvas.delete("roi_rect")
 
         x_end, y_end = event.x, event.y
+
+        # Ensure that the x and y coordinates are within canvas bounds
+        x_end = max(0, min(x_end, self.canvas.winfo_width()))
+        y_end = max(0, min(y_end, self.canvas.winfo_height()))
 
         if x_end > self.x_begin and y_end > self.y_begin:
             # Calculate the new x_begin, y_begin, width, and height values
@@ -263,8 +294,8 @@ class OcrGUI:
             self.canvas.create_rectangle(
                 self.x_begin,
                 self.y_begin,
-                self.x_begin + self.width,
-                self.y_begin + self.height,
+                x_end,
+                y_end,
                 outline="red",
                 tags="roi_rect",
             )
@@ -277,10 +308,34 @@ class OcrGUI:
             self.x_begin = x_end
             self.y_begin = y_end
 
+
     def end_roi(self, event):
-        self.width = event.x - self.x_begin
-        self.height = event.y - self.y_begin
+        x_end, y_end = event.x, event.y
+
+        # Ensure that the x and y coordinates are within canvas bounds
+        x_end = max(0, min(x_end, self.canvas.winfo_width()))
+        y_end = max(0, min(y_end, self.canvas.winfo_height()))
+
+        self.width = x_end - self.x_begin
+        self.height = y_end - self.y_begin
+
+        # Calculate the aspect ratio of the original image
+        original_aspect_ratio = self.current_frame.shape[1] / self.current_frame.shape[0]
+
+        # Calculate the adjusted coordinates and dimensions for the original image
+        adjusted_x_begin = int(self.x_begin / self.canvas.winfo_width() * self.current_frame.shape[1])
+        adjusted_width = int(self.width / self.canvas.winfo_width() * self.current_frame.shape[1])
+        adjusted_y_begin = int(self.y_begin / self.canvas.winfo_height() * self.current_frame.shape[0])
+        adjusted_height = int(self.height / self.canvas.winfo_height() * self.current_frame.shape[0])
+
+        # Update the attributes with adjusted coordinates and dimensions
+        self.x_begin = adjusted_x_begin
+        self.width = adjusted_width
+        self.y_begin = adjusted_y_begin
+        self.height = adjusted_height
+
         self.roi_selected = True
+
 
     def submit_roi(self):
         if self.roi_selected:
